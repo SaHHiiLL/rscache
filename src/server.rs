@@ -2,6 +2,7 @@ use crate::client::Client;
 use core::fmt;
 use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::mpsc::{Receiver, Sender};
+use tracing::info;
 
 #[derive(Debug)]
 pub struct Server {
@@ -56,5 +57,10 @@ impl Server {
                 }
             }
         }
+    }
+
+    async fn disconnect_clinet(&mut self, addr: SocketAddr) {
+        let mut client = self.client.remove(&addr);
+        if let Some(ref mut client) = client {}
     }
 }

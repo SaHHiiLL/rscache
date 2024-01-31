@@ -26,7 +26,7 @@ impl Client {
         Self { con: connection }
     }
 
-    pub async fn start_client(&mut self, _tx: Sender<ServerMessages>) {
+    pub async fn start_client(&mut self, tx: Sender<ServerMessages>) {
         // Send a welcome message to the client;
         let connection = Arc::clone(&self.con);
 
@@ -37,33 +37,32 @@ impl Client {
                     .as_bytes();
 
             let _ = con.write_all(welcome_message).await;
+            let mut buffer = [0_u8; 8];
+            let read = con.read(&mut buffer).await;
 
-            // READ all messages from the user here
-            loop {
-                let mut buffer = [0_u8; 8];
-                let read = con.read(&mut buffer).await;
-
-                match read {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        // connection is active
-                        let msg = &buffer[..n];
-                        let msg = String::from_utf8(msg.to_vec());
-                        let msg = match msg {
-                            Ok(m) => m,
-                            Err(err) => {
-                                tracing::error!(message = "Error Reading data from the clinet", %err);
-                                break;
-                            }
-                        };
-                        println!("{}", msg);
-                    }
-                    Err(err) => {
-                        tracing::error!(message = "Error Reading data from the clinet", %err);
-                        break;
-                    }
+            // READ's once
+            match read {
+                Ok(0) => {
+                    println!("end");
                 }
-            }
+                Ok(n) => {
+                    // connection is active
+                    let msg = &buffer[..n];
+                    let msg = String::from_utf8(msg.to_vec());
+                    let msg = match msg {
+                        Ok(m) => m,
+                        Err(err) => {
+                            tracing::error!(message = "Error Reading data from the clinet", %err);
+                            return;
+                        }
+                    };
+
+                    println!("{msg}");
+                }
+                Err(err) => {
+                    tracing::error!(message = "Error Reading data from the clinet", %err);
+                }
+            };
         });
     }
 

@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 
 use tracing::Level;
 mod client;
@@ -33,6 +33,21 @@ async fn main() {
 
     let connection = tokio::net::TcpListener::bind(addr).await.unwrap();
     tracing::info!(message = "Listening on", %addr);
+
+    // #[cfg(debug_assertions)]
+    // {
+    //     tokio::spawn(async move {
+    //         use tokio::runtime::Handle;
+    //         loop {
+    //             let metrics = Handle::current().metrics();
+    //
+    //             let n = metrics.active_tasks_count();
+    //
+    //             println!("Runtime has {} active tasks", n);
+    //             tokio::time::sleep(Duration::from_secs(5)).await;
+    //         }
+    //     });
+    // }
 
     loop {
         if let Ok((stream, addr)) = connection.accept().await {

@@ -25,8 +25,9 @@ impl fmt::Display for Server {
 
 #[derive(Debug)]
 pub enum ServerMessages {
-    IncomingMessage,
+    IncomingMessage(String),
     NewClient(SocketAddr, crate::client::Client, Sender<ServerMessages>),
+    RemoveClient(SocketAddr),
 }
 
 impl Server {
@@ -45,7 +46,7 @@ impl Server {
     async fn listen_for_messages(&mut self) {
         while let Some(r) = self.rx.recv().await {
             match r {
-                ServerMessages::IncomingMessage => println!("Hello message"),
+                ServerMessages::IncomingMessage(msg) => println!("Hello message {msg}"),
                 ServerMessages::NewClient(addr, client, tx) => {
                     tracing::info!(message = "New client rec", %addr);
                     self.client.insert(addr, client);
@@ -55,12 +56,12 @@ impl Server {
                         .start_client(tx)
                         .await;
                 }
+                ServerMessages::RemoveClient(addr) => {
+                    if let None = self.client.remove(&addr) {
+                        tracing::debug!(message = "removed client at ", %addr);
+                    }
+                }
             }
         }
-    }
-
-    async fn disconnect_clinet(&mut self, addr: SocketAddr) {
-        let mut client = self.client.remove(&addr);
-        if let Some(ref mut client) = client {}
     }
 }

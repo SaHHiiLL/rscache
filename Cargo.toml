@@ -1,3 +1,4 @@
+cargo-features = ["profile-rustflags"]
 [package]
 name = "rscache"
 version = "0.1.0"
@@ -10,6 +11,6 @@ tokio = { version = "1.35.1", features = ["full"] }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 
-[build.debug]
+[profile.dev]
 rustflags = ["--cfg", "tokio_unstable"]
-rustdocflags = ["--cfg", "tokio_unstable"] 
+rustdocflags = ["--cfg", "tokio_unstable"]

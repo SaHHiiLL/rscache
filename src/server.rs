@@ -1,4 +1,4 @@
-use crate::client::Client;
+use crate::{client::Client, database::Database};
 use core::fmt;
 use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -7,6 +7,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 pub struct Server {
     client: HashMap<SocketAddr, Client>,
     rx: Receiver<ServerMessages>,
+    db: Database,
 }
 
 impl fmt::Display for Server {
@@ -27,7 +28,11 @@ pub enum ServerMessages {
     IncomingMessage(String),
     NewClient(SocketAddr, crate::client::Client, Sender<ServerMessages>),
     RemoveClient(SocketAddr),
-    NewClientMessage(crate::message::JoinMessage, SocketAddr),
+    NewClientMessage(
+        crate::message::JoinMessage,
+        SocketAddr,
+        Sender<ServerMessages>,
+    ),
 }
 
 impl Server {
@@ -35,6 +40,7 @@ impl Server {
         Self {
             client: HashMap::new(),
             rx,
+            db: Database::new(),
         }
     }
 
@@ -61,7 +67,7 @@ impl Server {
                         tracing::debug!(message = "removed client at ", %addr);
                     }
                 }
-                ServerMessages::NewClientMessage(msg, addr) => {
+                ServerMessages::NewClientMessage(msg, addr, tx) => {
                     // We can be sure that the client as choses from one the CMD
                     if let Some(client) = self.client.get_mut(&addr) {
                         match msg {
@@ -70,7 +76,7 @@ impl Server {
                             }
                             crate::message::JoinMessage::Client => {
                                 client.lift_probation();
-                                client.listen_client_interaction().await;
+                                client.listen_client_interaction(tx.clon).await;
                             }
                         }
                     }

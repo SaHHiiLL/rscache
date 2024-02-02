@@ -107,8 +107,7 @@ Please send one of the following message. Timeout is 5 seconds
         });
     }
 
-    pub async fn listen_client_interaction(&mut self) {
-        let client = self.clone();
+    pub async fn listen_client_interaction(&mut self, tx: Sender<ServerMessages>) {
         self.write_once(
             "\n\nYou are connected... use `SET` or `GET` for interacting with the database\n",
         )
@@ -117,12 +116,41 @@ Please send one of the following message. Timeout is 5 seconds
 
         self.write_once(msg).await;
 
-        tokio::task::spawn(async move { loop {} });
+        let con = Arc::clone(&self.con);
+        tokio::task::spawn(async move { Client::read(con, tx) });
+    }
+
+    async fn read(con: Arc<RwLock<TcpStream>>, tx: Sender<ServerMessages>) -> bool {
+        loop {
+            let mut buffer = [0u8; 64];
+
+            let read = con.write().await.read(&mut buffer).await;
+            match read {
+                Ok(0) => return true,
+                Ok(n) => {
+                    let msg = &buffer[..n];
+                    let msg = String::from_utf8(msg.to_vec());
+                    let msg = match msg {
+                        Ok(m) => m,
+                        Err(err) => {
+                            tracing::error!(message = "Error Reading data from the clinet", %err);
+                            return false;
+                        }
+                    };
+                    let msg = msg.parse();
+                }
+                Err(_) => {
+                    tracing::error!("Could not read from client");
+                    break;
+                }
+            };
+        }
+        false
     }
 
     async fn write_once<T: Into<String>>(&mut self, msg: T) {
         let msg = msg.into().as_bytes().to_vec();
-        self.con.write().await.write_all(&msg).await;
+        let _ = self.con.write().await.write_all(&msg).await;
     }
 
     async fn disconnect<S: Into<String>>(
@@ -130,9 +158,15 @@ Please send one of the following message. Timeout is 5 seconds
         tx: Sender<ServerMessages>,
         bye_msg: S,
     ) {
+        let bye_msg = bye_msg.into();
         let mut con = con.write().await;
-        let bye_msg = bye_msg.into().as_bytes().to_vec();
-        let _ = con.write_all(&bye_msg).await;
+
+        // Only write if the message contains something
+        if bye_msg != "" {
+            let bye_msg = bye_msg.as_bytes().to_vec();
+            let _ = con.write_all(&bye_msg).await;
+        }
+
         let addr = con.peer_addr().unwrap();
         con.shutdown().await.unwrap();
 
@@ -145,6 +179,7 @@ Please send one of the following message. Timeout is 5 seconds
             });
     }
 
+    // TODO: rename this to something like read until verification
     async fn read_once(
         con: Arc<RwLock<TcpStream>>,
         tx: Sender<ServerMessages>,
@@ -172,7 +207,7 @@ Please send one of the following message. Timeout is 5 seconds
                 // Else let the connection drop through
                 if let Ok(msg) = msg.parse() {
                     let _ = tx
-                        .send(ServerMessages::NewClientMessage(msg, addr))
+                        .send(ServerMessages::NewClientMessage(msg, addr, tx.clone()))
                         .await
                         .map_err(|err| {
                             tracing::error!(message = "Could not send message to server", %err);

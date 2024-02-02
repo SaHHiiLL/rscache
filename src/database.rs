@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 #[derive(Debug)]
-struct Database {
+pub struct Database {
     data: HashMap<String, Option<String>>,
 }
 

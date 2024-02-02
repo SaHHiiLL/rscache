@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 
 #[derive(Debug)]
 pub enum JoinMessage {
@@ -29,4 +29,10 @@ impl FromStr for JoinMessage {
         }
         Err(())
     }
+}
+
+#[derive(Debug)]
+enum ClientMessage {
+    SetMessage { key: String, dur: Duration },
+    GetMessage { key: String },
 }

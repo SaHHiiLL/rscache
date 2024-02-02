@@ -2,6 +2,7 @@ use std::{str::FromStr, time::Duration};
 
 use tracing::Level;
 mod client;
+mod message;
 mod server;
 
 #[allow(dead_code)]

@@ -13,6 +13,13 @@ use crate::server::ServerMessages;
 #[derive(Debug)]
 pub struct Client {
     con: Arc<RwLock<TcpStream>>,
+    state: ClientState,
+}
+
+#[derive(Debug)]
+pub enum ClientState {
+    Probation,
+    Free,
 }
 
 impl fmt::Display for Client {
@@ -24,7 +31,14 @@ impl fmt::Display for Client {
 impl Client {
     pub fn new(connection: TcpStream) -> Self {
         let connection = Arc::new(RwLock::new(connection));
-        Self { con: connection }
+        Self {
+            con: connection,
+            state: ClientState::Probation,
+        }
+    }
+
+    pub fn lift_probation(&mut self) {
+        self.state = ClientState::Free;
     }
 
     pub async fn start_client(&mut self, tx: Sender<ServerMessages>) {
@@ -62,63 +76,85 @@ Please send one of the following message. Timeout is 5 seconds
             // waits for the future to complete in the duration -> if the future is completed in
             // the given time, OK branch is executed - if the future is not executed in the given
             // time Err branch is executed
+
             match res {
-                Ok(_) => {
-                    println!("Connection still active");
+                Ok(true) => {
+                    // Keep the connection alive for future
                 }
-                Err(_) => {
-                    let mut con = connection.write().await;
-                    let bye_msg = "\n Connection Timeout\n\n".as_bytes();
-                    let _ = con.write_all(bye_msg).await;
-                    let addr = con.peer_addr().unwrap();
-                    con.shutdown().await.unwrap();
-                    let _ = tx
-                        .send(ServerMessages::RemoveClient(addr))
-                        .await
-                        .map_err(|err| {
-                            tracing::error!(message = "Could not send message to server", %err);
-                        });
-                    println!("Connection not active");
+                Ok(false) => {
+                    Client::disconnect(Arc::clone(&connection), tx.clone(), "").await;
+                }
+                _ => {
+                    Client::disconnect(
+                        Arc::clone(&connection),
+                        tx.clone(),
+                        "\n\nConnection Timeout\n\n",
+                    )
+                    .await;
                 }
             }
         });
     }
 
-    async fn read_once(con: Arc<RwLock<TcpStream>>, tx: Sender<ServerMessages>) {
+    async fn disconnect<S: Into<String>>(
+        con: Arc<RwLock<TcpStream>>,
+        tx: Sender<ServerMessages>,
+        bye_msg: S,
+    ) {
+        let mut con = con.write().await;
+        let bye_msg = bye_msg.into().as_bytes().to_vec();
+        let _ = con.write_all(&bye_msg).await;
+        let addr = con.peer_addr().unwrap();
+        con.shutdown().await.unwrap();
+        let _ = tx
+            .send(ServerMessages::RemoveClient(addr))
+            .await
+            .map_err(|err| {
+                tracing::error!(message = "Could not send message to server", %err);
+            });
+        println!("Connection not active");
+    }
+
+    async fn read_once(con: Arc<RwLock<TcpStream>>, tx: Sender<ServerMessages>) -> bool {
         let mut buffer = [0_u8; 8];
         let mut con = con.as_ref().write().await;
         let read = con.read(&mut buffer).await;
 
         // READ's once
-        loop {
-            match read {
-                Ok(0) => {
-                    break;
-                }
-                Ok(n) => {
-                    // connection is active
-                    let msg = &buffer[..n];
-                    let msg = String::from_utf8(msg.to_vec());
-                    let msg = match msg {
-                        Ok(m) => m,
-                        Err(err) => {
-                            tracing::error!(message = "Error Reading data from the clinet", %err);
-                            return;
-                        }
-                    };
+        match read {
+            Ok(0) => {}
+            Ok(n) => {
+                // connection is active
+                let msg = &buffer[..n];
+                let msg = String::from_utf8(msg.to_vec());
+                let msg = match msg {
+                    Ok(m) => m,
+                    Err(err) => {
+                        tracing::error!(message = "Error Reading data from the clinet", %err);
+                        return false;
+                    }
+                };
 
+                // Else let the connection drop through
+                if let Ok(msg) = msg.parse() {
                     let _ = tx
-                        .send(ServerMessages::IncomingMessage(msg))
+                        .send(ServerMessages::NewClientMessage(msg))
                         .await
                         .map_err(|err| {
                             tracing::error!(message = "Could not send message to server", %err);
                         });
+                    return true;
+                } else {
+                    tracing::debug!(msg);
+                    let msg = "Incorrect CMD, dropping connection\n".as_bytes();
+                    let _ = con.write_all(msg).await;
                 }
-                Err(_) => {
-                    tracing::error!(message = "Error Reading data from the clinet");
-                    break;
-                }
-            };
-        }
+            }
+            Err(_) => {
+                tracing::error!(message = "Error Reading data from the clinet");
+            }
+        };
+
+        false
     }
 }

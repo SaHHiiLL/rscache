@@ -28,6 +28,7 @@ pub enum ServerMessages {
     IncomingMessage(String),
     NewClient(SocketAddr, crate::client::Client, Sender<ServerMessages>),
     RemoveClient(SocketAddr),
+    NewClientMessage(crate::message::JoinMessage),
 }
 
 impl Server {
@@ -46,7 +47,7 @@ impl Server {
     async fn listen_for_messages(&mut self) {
         while let Some(r) = self.rx.recv().await {
             match r {
-                ServerMessages::IncomingMessage(msg) => println!("Hello message {msg}"),
+                ServerMessages::IncomingMessage(msg) => {}
                 ServerMessages::NewClient(addr, client, tx) => {
                     tracing::info!(message = "New client rec", %addr);
                     self.client.insert(addr, client);
@@ -60,6 +61,9 @@ impl Server {
                     if let None = self.client.remove(&addr) {
                         tracing::debug!(message = "removed client at ", %addr);
                     }
+                }
+                ServerMessages::NewClientMessage(msg) => {
+                    // We can be sure that the client as choses from one the CMD
                 }
             }
         }

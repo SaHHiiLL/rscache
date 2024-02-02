@@ -2,7 +2,6 @@ use crate::client::Client;
 use core::fmt;
 use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::info;
 
 #[derive(Debug)]
 pub struct Server {
@@ -47,7 +46,7 @@ impl Server {
     async fn listen_for_messages(&mut self) {
         while let Some(r) = self.rx.recv().await {
             match r {
-                ServerMessages::IncomingMessage(msg) => {}
+                ServerMessages::IncomingMessage(_msg) => {}
                 ServerMessages::NewClient(addr, client, tx) => {
                     tracing::info!(message = "New client rec", %addr);
                     self.client.insert(addr, client);
@@ -58,11 +57,11 @@ impl Server {
                         .await;
                 }
                 ServerMessages::RemoveClient(addr) => {
-                    if let None = self.client.remove(&addr) {
+                    if self.client.remove(&addr).is_none() {
                         tracing::debug!(message = "removed client at ", %addr);
                     }
                 }
-                ServerMessages::NewClientMessage(msg) => {
+                ServerMessages::NewClientMessage(_msg) => {
                     // We can be sure that the client as choses from one the CMD
                 }
             }

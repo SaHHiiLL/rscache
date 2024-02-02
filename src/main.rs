@@ -8,7 +8,7 @@ mod server;
 #[allow(dead_code)]
 #[tokio::main]
 async fn main() {
-    let level = if let Some(_) = std::option_env!("LOGGER") {
+    let level = if std::option_env!("LOGGER").is_some() {
         Level::INFO
     } else {
         Level::TRACE

@@ -13,7 +13,7 @@ impl FromStr for JoinMessage {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
         tracing::debug!(s);
-        let open = s.split_once(" ");
+        let open = s.split_once(' ');
 
         let (action, rest) = match open {
             Some(s) => s,

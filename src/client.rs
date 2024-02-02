@@ -45,9 +45,10 @@ impl Client {
         // Send a welcome message to the client;
         let connection = Arc::clone(&self.con);
 
+        #[allow(clippy::let_underscore_future)]
         let _ = tokio::task::spawn(async move {
             let duration = Duration::from_secs(5);
-            let welcome_message = r"
+            let welcome_message = "
 
 Welcome to Rscache, use `SET` and `GET` for interacting with the database
 
@@ -116,7 +117,7 @@ Please send one of the following message. Timeout is 5 seconds
     }
 
     async fn read_once(con: Arc<RwLock<TcpStream>>, tx: Sender<ServerMessages>) -> bool {
-        let mut buffer = [0_u8; 8];
+        let mut buffer = [0u8; 32];
         let mut con = con.as_ref().write().await;
         let read = con.read(&mut buffer).await;
 
@@ -144,11 +145,10 @@ Please send one of the following message. Timeout is 5 seconds
                             tracing::error!(message = "Could not send message to server", %err);
                         });
                     return true;
-                } else {
-                    tracing::debug!(msg);
-                    let msg = "Incorrect CMD, dropping connection\n".as_bytes();
-                    let _ = con.write_all(msg).await;
                 }
+                tracing::debug!(msg);
+                let msg = "Incorrect CMD, dropping connection\n".as_bytes();
+                let _ = con.write_all(msg).await;
             }
             Err(_) => {
                 tracing::error!(message = "Error Reading data from the clinet");

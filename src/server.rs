@@ -27,7 +27,7 @@ pub enum ServerMessages {
     IncomingMessage(String),
     NewClient(SocketAddr, crate::client::Client, Sender<ServerMessages>),
     RemoveClient(SocketAddr),
-    NewClientMessage(crate::message::JoinMessage),
+    NewClientMessage(crate::message::JoinMessage, SocketAddr),
 }
 
 impl Server {
@@ -57,12 +57,23 @@ impl Server {
                         .await;
                 }
                 ServerMessages::RemoveClient(addr) => {
-                    if self.client.remove(&addr).is_none() {
+                    if self.client.remove(&addr).is_some() {
                         tracing::debug!(message = "removed client at ", %addr);
                     }
                 }
-                ServerMessages::NewClientMessage(_msg) => {
+                ServerMessages::NewClientMessage(msg, addr) => {
                     // We can be sure that the client as choses from one the CMD
+                    if let Some(client) = self.client.get_mut(&addr) {
+                        match msg {
+                            crate::message::JoinMessage::NodeJoin => {
+                                todo!()
+                            }
+                            crate::message::JoinMessage::Client => {
+                                client.lift_probation();
+                                client.listen_client_interaction().await;
+                            }
+                        }
+                    }
                 }
             }
         }

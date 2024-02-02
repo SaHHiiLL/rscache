@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 #[derive(Debug)]
 pub enum JoinMessage {
-    Help(String),
     NodeJoin,
     Client,
 }
@@ -27,9 +26,6 @@ impl FromStr for JoinMessage {
         }
         if action.eq_ignore_ascii_case("CLIENT") {
             return Ok(JoinMessage::Client);
-        }
-        if action.eq_ignore_ascii_case("HELP") {
-            return Ok(JoinMessage::Help(rest.to_string()));
         }
         Err(())
     }

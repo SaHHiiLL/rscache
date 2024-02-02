@@ -2,6 +2,7 @@ use std::{str::FromStr, time::Duration};
 
 use tracing::Level;
 mod client;
+mod database;
 mod message;
 mod server;
 
@@ -52,7 +53,7 @@ async fn main() {
 
     loop {
         if let Ok((stream, addr)) = connection.accept().await {
-            let client = crate::client::Client::new(stream);
+            let client = crate::client::Client::new(stream, addr);
             let _ = tx
                 .clone()
                 .send(server::ServerMessages::NewClient(addr, client, tx.clone()))

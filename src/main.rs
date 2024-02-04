@@ -30,7 +30,7 @@ async fn main() {
     }).unwrap();
 
     let (tx, rx) = tokio::sync::mpsc::channel(10);
-    let server = crate::server::Server::new(rx);
+    let server = crate::server::Server::new(rx).await;
     server.start_daemon();
 
     let connection = tokio::net::TcpListener::bind(addr).await.unwrap();

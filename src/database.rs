@@ -1,12 +1,18 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 #[derive(Debug)]
 pub struct Database {
     data: HashMap<String, Option<String>>,
 }
 
+pub struct Data {
+    data: String,
+    // time to live in seconds
+    ttl: Duration,
+}
+
 impl Database {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         Self {
             data: HashMap::new(),
         }

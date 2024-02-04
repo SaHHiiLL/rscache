@@ -1,31 +1,59 @@
 use core::fmt;
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
+    net::{
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
+        TcpStream,
+    },
     sync::{mpsc::Sender, RwLock},
-    time::timeout,
 };
+use tracing_subscriber::fmt::format;
 
-use crate::server::ServerMessages;
+use crate::{message, server::ServerMessages};
+
+trait AsyncWritelnExt<S: ToString> {
+    async fn writeln(&mut self, msg: S);
+}
+
+impl<S> AsyncWritelnExt<S> for TcpStream
+where
+    S: ToString,
+{
+    async fn writeln(&mut self, msg: S) {
+        let msg = format!("{}\n", msg.to_string());
+        self.write_all(msg.as_bytes()).await;
+    }
+}
+
+impl<S> AsyncWritelnExt<S> for OwnedWriteHalf
+where
+    S: ToString,
+{
+    async fn writeln(&mut self, msg: S) {
+        let msg = format!("{}\n", msg.to_string());
+        self.write_all(msg.as_bytes()).await;
+    }
+}
 
 #[derive(Debug)]
 pub struct Client {
-    con: Arc<RwLock<TcpStream>>,
     addr: SocketAddr,
     state: ClientState,
+    write: Arc<RwLock<OwnedWriteHalf>>,
+    read: Arc<RwLock<OwnedReadHalf>>,
 }
 
-impl Clone for Client {
-    fn clone(&self) -> Self {
-        Self {
-            con: Arc::clone(&self.con),
-            addr: self.addr.clone(),
-            state: self.state.clone(),
-        }
-    }
-}
+// impl Clone for Client {
+//     fn clone(&self) -> Self {
+//         Self {
+//             addr: self.addr.clone(),
+//             state: self.state.clone(),
+//             write
+//         }
+//     }
+// }
 
 #[derive(Debug, Clone)]
 pub enum ClientState {
@@ -41,11 +69,16 @@ impl fmt::Display for Client {
 
 impl Client {
     pub fn new(connection: TcpStream, addr: SocketAddr) -> Self {
-        let con = Arc::new(RwLock::new(connection));
+        // let con = Arc::new(RwLock::new(connection));
+        let (read, write) = connection.into_split();
+        let read = Arc::new(RwLock::new(read));
+        let write = Arc::new(RwLock::new(write));
+
         Self {
-            con,
             addr,
             state: ClientState::Probation,
+            write,
+            read,
         }
     }
 
@@ -53,176 +86,63 @@ impl Client {
         self.state = ClientState::Free;
     }
 
-    pub async fn start_client(&mut self, tx: Sender<ServerMessages>) {
+    pub async fn keep_open(&mut self, tx: Sender<ServerMessages>) {
         // Send a welcome message to the client;
-        let connection = Arc::clone(&self.con);
+        let read_h = Arc::clone(&self.read);
+        let write_h = Arc::clone(&self.write);
         let addr = self.addr.clone();
 
         #[allow(clippy::let_underscore_future)]
         let _ = tokio::task::spawn(async move {
-            let duration = Duration::from_secs(5);
-            let welcome_message = "
+            // Will read non stop
+            loop {
+                let mut buf = [0u8; 64];
 
-Welcome to Rscache.
+                let read = read_h.write().await.read(&mut buf).await;
 
-Please send one of the following message. Timeout is 5 seconds
-    - NODEJOIN
-    - Client
-"
-            .as_bytes();
+                match read {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        // Somerthing
+                        let msg = &buf[..n];
+                        let msg = String::from_utf8(msg.to_vec());
+                        let msg = match msg {
+                            Ok(m) => m,
+                            Err(err) => {
+                                tracing::error!(message = "Non-UTF8 string received", %err);
+                                return;
+                            }
+                        };
+                        let msg = msg.parse::<message::ClientMessage>();
 
-            let _ = connection
-                .as_ref()
-                .write()
-                .await
-                .write_all(welcome_message)
-                .await;
+                        let msg = match msg {
+                            Ok(msg) => msg,
+                            Err(_) => {
+                                // write_h
+                                //     .write()
+                                //     .await
+                                //     .write_all(b"Unable to parse the message\n")
+                                //     .await;
+                                continue;
+                            }
+                        };
 
-            let res = timeout(
-                duration,
-                Client::read_once(Arc::clone(&connection), tx.clone(), addr),
-            )
-            .await;
-
-            // waits for the future to complete in the duration -> if the future is completed in
-            // the given time, OK branch is executed - if the future is not executed in the given
-            // time Err branch is executed
-
-            match res {
-                Ok(true) => {
-                    // Keep the connection alive for future
-                }
-                Ok(false) => {
-                    Client::disconnect(Arc::clone(&connection), tx.clone(), "").await;
-                }
-                _ => {
-                    Client::disconnect(
-                        Arc::clone(&connection),
-                        tx.clone(),
-                        "\n\nConnection Timeout\n\n",
-                    )
-                    .await;
+                        let _ = tx
+                            .send(ServerMessages::NewMessage(msg, addr))
+                            .await
+                            .map_err(|err| {
+                                tracing::error!(message = "Could not send message to server", %err);
+                            });
+                    }
+                    Err(_) => break,
                 }
             }
+            tracing::debug!(message = "Dropping Connection", %addr);
         });
     }
 
-    pub async fn listen_client_interaction(&mut self, tx: Sender<ServerMessages>) {
-        self.write_once(
-            "\n\nYou are connected... use `SET` or `GET` for interacting with the database\n",
-        )
-        .await;
-        let msg = "\n\nUse `SET <KEY> <TIME_TO_LIVE>` Your next message will be considered as a the VALUE to the above, you will have 10MINUTES to Enter your value. a new line char is considered as the EOF if no EOF is provided before\n";
-
-        self.write_once(msg).await;
-
-        let con = Arc::clone(&self.con);
-        tokio::task::spawn(async move { Client::read(con, tx) });
-    }
-
-    async fn read(con: Arc<RwLock<TcpStream>>, tx: Sender<ServerMessages>) -> bool {
-        loop {
-            let mut buffer = [0u8; 64];
-
-            let read = con.write().await.read(&mut buffer).await;
-            match read {
-                Ok(0) => return true,
-                Ok(n) => {
-                    let msg = &buffer[..n];
-                    let msg = String::from_utf8(msg.to_vec());
-                    let msg = match msg {
-                        Ok(m) => m,
-                        Err(err) => {
-                            tracing::error!(message = "Error Reading data from the clinet", %err);
-                            return false;
-                        }
-                    };
-                    let msg = msg.parse();
-                }
-                Err(_) => {
-                    tracing::error!("Could not read from client");
-                    break;
-                }
-            };
-        }
-        false
-    }
-
-    async fn write_once<T: Into<String>>(&mut self, msg: T) {
-        let msg = msg.into().as_bytes().to_vec();
-        let _ = self.con.write().await.write_all(&msg).await;
-    }
-
-    async fn disconnect<S: Into<String>>(
-        con: Arc<RwLock<TcpStream>>,
-        tx: Sender<ServerMessages>,
-        bye_msg: S,
-    ) {
-        let bye_msg = bye_msg.into();
-        let mut con = con.write().await;
-
-        // Only write if the message contains something
-        if bye_msg != "" {
-            let bye_msg = bye_msg.as_bytes().to_vec();
-            let _ = con.write_all(&bye_msg).await;
-        }
-
-        let addr = con.peer_addr().unwrap();
-        con.shutdown().await.unwrap();
-
-        // Send message to server so it can remove client from map
-        let _ = tx
-            .send(ServerMessages::RemoveClient(addr))
-            .await
-            .map_err(|err| {
-                tracing::error!(message = "Could not send message to server", %err);
-            });
-    }
-
-    // TODO: rename this to something like read until verification
-    async fn read_once(
-        con: Arc<RwLock<TcpStream>>,
-        tx: Sender<ServerMessages>,
-        addr: SocketAddr,
-    ) -> bool {
-        let mut buffer = [0u8; 32];
-        let mut con = con.as_ref().write().await;
-        let read = con.read(&mut buffer).await;
-
-        // READ's once
-        match read {
-            Ok(0) => {}
-            Ok(n) => {
-                // connection is active
-                let msg = &buffer[..n];
-                let msg = String::from_utf8(msg.to_vec());
-                let msg = match msg {
-                    Ok(m) => m,
-                    Err(err) => {
-                        tracing::error!(message = "Error Reading data from the clinet", %err);
-                        return false;
-                    }
-                };
-
-                // Else let the connection drop through
-                if let Ok(msg) = msg.parse() {
-                    let _ = tx
-                        .send(ServerMessages::NewClientMessage(msg, addr, tx.clone()))
-                        .await
-                        .map_err(|err| {
-                            tracing::error!(message = "Could not send message to server", %err);
-                        });
-                    return true;
-                }
-                tracing::debug!(msg);
-                let msg = "Incorrect CMD, dropping connection\n".as_bytes();
-                let _ = con.write_all(msg).await;
-            }
-            Err(_) => {
-                tracing::error!(message = "Error Reading data from the clinet");
-            }
-        };
-
-        false
+    pub async fn send_message(&mut self, msg: String) {
+        let write_h = Arc::clone(&self.write);
+        write_h.write().await.writeln(msg).await;
     }
 }

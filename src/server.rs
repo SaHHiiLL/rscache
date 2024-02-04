@@ -1,4 +1,4 @@
-use crate::{client::Client, database::Database};
+use crate::{client::Client, database::Database, message};
 use core::fmt;
 use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -25,6 +25,7 @@ impl fmt::Display for Server {
 
 #[derive(Debug)]
 pub enum ServerMessages {
+    NewMessage(message::ClientMessage, SocketAddr),
     IncomingMessage(String),
     NewClient(SocketAddr, crate::client::Client, Sender<ServerMessages>),
     RemoveClient(SocketAddr),
@@ -36,11 +37,11 @@ pub enum ServerMessages {
 }
 
 impl Server {
-    pub fn new(rx: Receiver<ServerMessages>) -> Self {
+    pub async fn new(rx: Receiver<ServerMessages>) -> Self {
         Self {
             client: HashMap::new(),
             rx,
-            db: Database::new(),
+            db: Database::new().await,
         }
     }
 
@@ -52,6 +53,28 @@ impl Server {
     async fn listen_for_messages(&mut self) {
         while let Some(r) = self.rx.recv().await {
             match r {
+                ServerMessages::NewMessage(msg, addr) => match msg {
+                    message::ClientMessage::SetKey { key, dur } => {
+                        self.db.insert_key_no_value(key);
+                    }
+                    message::ClientMessage::SetValue { key, value } => {
+                        self.db.insert_value(key, value)
+                    }
+                    message::ClientMessage::GetValue { key } => {
+                        let v = self.db.get(&key).unwrap();
+                        let v = match v {
+                            Some(d) => d.to_owned(),
+                            None => String::from("lol"),
+                        };
+                        tracing::debug!(v);
+
+                        let cl = self.client.get_mut(&addr);
+
+                        if let Some(cl) = cl {
+                            cl.send_message(v).await;
+                        }
+                    }
+                },
                 ServerMessages::IncomingMessage(_msg) => {}
                 ServerMessages::NewClient(addr, client, tx) => {
                     tracing::info!(message = "New client rec", %addr);
@@ -59,7 +82,7 @@ impl Server {
                     self.client
                         .get_mut(&addr.clone())
                         .expect("unreachable")
-                        .start_client(tx)
+                        .keep_open(tx)
                         .await;
                 }
                 ServerMessages::RemoveClient(addr) => {
@@ -76,7 +99,7 @@ impl Server {
                             }
                             crate::message::JoinMessage::Client => {
                                 client.lift_probation();
-                                client.listen_client_interaction(tx.clon).await;
+                                // client.listen_client_interaction(tx.clone()).await;
                             }
                         }
                     }

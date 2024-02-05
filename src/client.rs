@@ -85,7 +85,7 @@ impl Client {
     pub async fn keep_open(&mut self, tx: Sender<ServerMessages>) {
         // Send a welcome message to the client;
         let read_h = Arc::clone(&self.read);
-        let addr = self.addr.clone();
+        let addr = self.addr;
 
         let _ = tokio::task::spawn(async move {
             // Will read non stop
@@ -120,7 +120,7 @@ impl Client {
             }
             tracing::debug!(message = "Dropping Connection", %addr);
             let _ = tx
-                .send(ServerMessages::RemoveClient(addr.clone()))
+                .send(ServerMessages::RemoveClient(addr))
                 .await
                 .map_err(|err| {
                     tracing::error!(

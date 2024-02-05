@@ -1,4 +1,4 @@
-#[allow(clippy::let_underscore_future)]
+#![allow(clippy::let_underscore_future)]
 use std::{str::FromStr, time::Duration};
 use tracing::Level;
 mod client;
@@ -14,12 +14,7 @@ async fn main() {
         Level::TRACE
     };
 
-    tracing_subscriber::fmt()
-        // all spans/events with a level higher than TRACE (e.g, info, warn, etc.)
-        // will be written to stdout.
-        .with_max_level(level)
-        // sets this to be the default, global collector for this application.
-        .init();
+    tracing_subscriber::fmt().with_max_level(level).init();
 
     let addr = std::option_env!("ADDR").unwrap_or("127.0.0.1:6969");
 
@@ -39,12 +34,16 @@ async fn main() {
     {
         tokio::spawn(async move {
             use tokio::runtime::Handle;
+            let mut last = 0;
             loop {
                 let metrics = Handle::current().metrics();
 
                 let n = metrics.active_tasks_count();
 
-                tracing::debug!(message = "Active Task", %n);
+                if last != n {
+                    tracing::debug!(message = "Active Task", %n);
+                }
+                last = n;
                 tokio::time::sleep(Duration::from_secs(20)).await;
             }
         });

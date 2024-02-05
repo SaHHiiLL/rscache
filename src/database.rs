@@ -3,23 +3,17 @@ use std::{collections::HashMap, time::Duration};
 #[derive(Debug)]
 pub struct Database {
     data: HashMap<String, Option<String>>,
+    #[allow(dead_code)]
     _data_imp: HashMap<String, Option<Data>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Data {
+    #[allow(dead_code)]
     data: String,
     // time to live in seconds
+    #[allow(dead_code)]
     ttl: Duration,
-}
-
-impl Default for Data {
-    fn default() -> Self {
-        Self {
-            data: Default::default(),
-            ttl: Default::default(),
-        }
-    }
 }
 
 impl Database {

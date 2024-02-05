@@ -44,9 +44,9 @@ impl FromStr for ClientMessage {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut s = s.trim().split_whitespace();
+        let mut s = s.split_whitespace();
 
-        return match s.next().ok_or(())? {
+        match s.next().ok_or(())? {
             "GET" => Ok(ClientMessage::GetValue {
                 key: s.next().ok_or(())?.to_string(),
             }),
@@ -71,6 +71,6 @@ impl FromStr for ClientMessage {
                 Ok(ClientMessage::SetKey { key, dur })
             }
             _ => Err(()),
-        };
+        }
     }
 }

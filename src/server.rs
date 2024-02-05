@@ -1,7 +1,12 @@
-use crate::{client::Client, database::Database, message};
+use crate::{
+    client::{Client, ClientState},
+    database::Database,
+    message::{self, ClientMessage},
+};
 use core::fmt;
 use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::mpsc::{Receiver, Sender};
+use tracing_subscriber::fmt::format;
 
 #[derive(Debug)]
 pub struct Server {
@@ -25,15 +30,9 @@ impl fmt::Display for Server {
 
 #[derive(Debug)]
 pub enum ServerMessages {
-    NewMessage(message::ClientMessage, SocketAddr),
-    IncomingMessage(String),
+    NewMessage(String, SocketAddr),
     NewClient(SocketAddr, crate::client::Client, Sender<ServerMessages>),
     RemoveClient(SocketAddr),
-    NewClientMessage(
-        crate::message::JoinMessage,
-        SocketAddr,
-        Sender<ServerMessages>,
-    ),
 }
 
 impl Server {
@@ -41,41 +40,72 @@ impl Server {
         Self {
             client: HashMap::new(),
             rx,
-            db: Database::new().await,
+            db: Database::new(),
         }
     }
 
-    pub fn start_daemon(mut self) {
+    pub async fn start_daemon(mut self) {
         tracing::info!(message = "Starting Server", %self);
         tokio::task::spawn(async move { self.listen_for_messages().await });
     }
 
     async fn listen_for_messages(&mut self) {
-        while let Some(r) = self.rx.recv().await {
+        'main: while let Some(r) = self.rx.recv().await {
             match r {
-                ServerMessages::NewMessage(msg, addr) => match msg {
-                    message::ClientMessage::SetKey { key, dur } => {
-                        self.db.insert_key_no_value(key);
+                ServerMessages::NewMessage(msg, addr) => {
+                    let cl = self.client.get_mut(&addr);
+                    if cl.is_none() {
+                        continue 'main;
                     }
-                    message::ClientMessage::SetValue { key, value } => {
-                        self.db.insert_value(key, value)
-                    }
-                    message::ClientMessage::GetValue { key } => {
-                        let v = self.db.get(&key).unwrap();
-                        let v = match v {
-                            Some(d) => d.to_owned(),
-                            None => String::from("lol"),
-                        };
-                        tracing::debug!(v);
 
-                        let cl = self.client.get_mut(&addr);
+                    let cl = cl.expect("Client should be in map");
 
-                        if let Some(cl) = cl {
-                            cl.send_message(v).await;
+                    let clm = msg.parse::<ClientMessage>();
+                    let msg = match clm {
+                        Ok(msg) => msg,
+                        Err(_) => {
+                            if let ClientState::SettingValue { key } = cl.get_state().await {
+                                ClientMessage::SetValue { key, value: msg }
+                                // self.db.insert_value(key, msg);
+                                // cl.change_state_to_settingkey().await;
+                            } else {
+                                cl.send_message("Could not parse the messgae".to_string())
+                                    .await;
+                                continue 'main;
+                            }
+                        }
+                    };
+
+                    match msg {
+                        message::ClientMessage::SetKey { key, dur } => {
+                            let _ = dur;
+                            self.db.insert_key_no_value(key.to_string());
+                            cl.change_state_to_settingvalue(key).await;
+                        }
+                        message::ClientMessage::SetValue { key, value } => {
+                            self.db.insert_value(key, value);
+                            cl.change_state_to_settingkey().await;
+                        }
+                        message::ClientMessage::GetValue { key } => {
+                            let v = self.db.get(&key);
+                            let v = match v {
+                                Some(v) => v.to_owned(),
+                                None => {
+                                    let v = format!("KEY={{{key}}} does not exists");
+                                    Some(v)
+                                }
+                            };
+
+                            match v {
+                                Some(v) => cl.send_message(v).await,
+                                None => {
+                                    let v = format!("KEY={{{key}}} is empty");
+                                    cl.send_message(v).await;
+                                }
+                            }
                         }
                     }
-                },
-                ServerMessages::IncomingMessage(_msg) => {}
+                }
                 ServerMessages::NewClient(addr, client, tx) => {
                     tracing::info!(message = "New client rec", %addr);
                     self.client.insert(addr, client);
@@ -88,20 +118,6 @@ impl Server {
                 ServerMessages::RemoveClient(addr) => {
                     if self.client.remove(&addr).is_some() {
                         tracing::debug!(message = "removed client at ", %addr);
-                    }
-                }
-                ServerMessages::NewClientMessage(msg, addr, tx) => {
-                    // We can be sure that the client as choses from one the CMD
-                    if let Some(client) = self.client.get_mut(&addr) {
-                        match msg {
-                            crate::message::JoinMessage::NodeJoin => {
-                                todo!()
-                            }
-                            crate::message::JoinMessage::Client => {
-                                client.lift_probation();
-                                // client.listen_client_interaction(tx.clone()).await;
-                            }
-                        }
                     }
                 }
             }

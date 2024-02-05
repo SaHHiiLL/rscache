@@ -1,12 +1,11 @@
+#[allow(clippy::let_underscore_future)]
 use std::{str::FromStr, time::Duration};
-
 use tracing::Level;
 mod client;
 mod database;
 mod message;
 mod server;
 
-#[allow(dead_code)]
 #[tokio::main]
 async fn main() {
     let level = if std::option_env!("LOGGER").is_some() {
@@ -31,7 +30,7 @@ async fn main() {
 
     let (tx, rx) = tokio::sync::mpsc::channel(10);
     let server = crate::server::Server::new(rx).await;
-    server.start_daemon();
+    server.start_daemon().await;
 
     let connection = tokio::net::TcpListener::bind(addr).await.unwrap();
     tracing::info!(message = "Listening on", %addr);
@@ -46,7 +45,7 @@ async fn main() {
                 let n = metrics.active_tasks_count();
 
                 tracing::debug!(message = "Active Task", %n);
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                tokio::time::sleep(Duration::from_secs(20)).await;
             }
         });
     }

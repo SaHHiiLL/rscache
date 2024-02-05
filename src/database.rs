@@ -3,18 +3,30 @@ use std::{collections::HashMap, time::Duration};
 #[derive(Debug)]
 pub struct Database {
     data: HashMap<String, Option<String>>,
+    _data_imp: HashMap<String, Option<Data>>,
 }
 
+#[derive(Debug)]
 pub struct Data {
     data: String,
     // time to live in seconds
     ttl: Duration,
 }
 
+impl Default for Data {
+    fn default() -> Self {
+        Self {
+            data: Default::default(),
+            ttl: Default::default(),
+        }
+    }
+}
+
 impl Database {
-    pub async fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             data: HashMap::new(),
+            _data_imp: HashMap::new(),
         }
     }
 
@@ -41,7 +53,7 @@ impl Database {
         self.data.get(k)
     }
 
-    pub unsafe fn get_unsafe(&self, k: &str) -> &Option<String> {
+    pub unsafe fn _get_unsafe(&self, k: &str) -> &Option<String> {
         self.get(k).expect("YOU DID THIS TO YOUR SELF")
     }
 }

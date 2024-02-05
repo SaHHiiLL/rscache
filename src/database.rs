@@ -4,23 +4,40 @@ use std::{collections::HashMap, time::Duration};
 pub struct Database {
     data: HashMap<String, Option<String>>,
     #[allow(dead_code)]
-    _data_imp: HashMap<String, Option<Data>>,
+    data_imp: HashMap<String, Data>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Data {
     #[allow(dead_code)]
-    data: String,
+    data: Option<String>,
     // time to live in seconds
     #[allow(dead_code)]
     ttl: Duration,
+    #[allow(dead_code)]
+    time_added: tokio::time::Instant,
+}
+
+impl Default for Data {
+    fn default() -> Self {
+        Data::new()
+    }
+}
+
+impl Data {
+    pub fn new() -> Self {
+        Self {
+            time_added: tokio::time::Instant::now(),
+            ..Default::default()
+        }
+    }
 }
 
 impl Database {
     pub fn new() -> Self {
         Self {
             data: HashMap::new(),
-            _data_imp: HashMap::new(),
+            data_imp: HashMap::new(),
         }
     }
 
@@ -28,14 +45,37 @@ impl Database {
         self.data.insert(k, None);
     }
 
-    pub fn insert_value(&mut self, k: String, value: String) {
-        match self.data.get(&k) {
-            Some(v) => match v {
-                Some(_v) => {}
-                None => {
-                    let _ = self.data.get_mut(&k).expect("LOL").insert(value);
+    pub fn insert_key_impl(&mut self, key: String, ttl: Duration) {
+        let data = Data {
+            data: None,
+            ttl,
+            time_added: tokio::time::Instant::now(),
+        };
+        self.data_imp.insert(key, data);
+    }
+
+    pub fn insert_value_impl(&mut self, key: String, value: String) {
+        let d = self.data_imp.get_mut(&key);
+        match d {
+            Some(v) => {
+                if v.data.is_none() {
+                    let _ = v.data.insert(value);
                 }
-            },
+            }
+            None => {
+                self.insert_key_impl(key.clone(), Duration::from_secs(60));
+                self.insert_value_impl(key, value);
+            }
+        }
+    }
+
+    pub fn insert_value(&mut self, k: String, value: String) {
+        match self.data.get_mut(&k) {
+            Some(v) => {
+                if v.is_none() {
+                    let _ = v.insert(value);
+                }
+            }
             None => {
                 // if theres no value add it with key
                 self.data.insert(k, Some(value));
@@ -43,12 +83,12 @@ impl Database {
         }
     }
 
-    pub fn get(&self, k: &str) -> Option<&Option<String>> {
-        self.data.get(k)
+    pub fn get_impl(&self, k: &str) -> Option<&Data> {
+        self.data_imp.get(k)
     }
 
-    pub unsafe fn _get_unsafe(&self, k: &str) -> &Option<String> {
-        self.get(k).expect("YOU DID THIS TO YOUR SELF")
+    pub fn get(&self, k: &str) -> Option<&Option<String>> {
+        self.data.get(k)
     }
 }
 

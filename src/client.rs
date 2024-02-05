@@ -130,6 +130,10 @@ impl Client {
         });
     }
 
+    pub async fn disconnect(&self) {
+        let _ = self.write.write().await.shutdown().await;
+    }
+
     pub async fn get_state(&self) -> ClientState {
         Arc::clone(&self.state).read().await.to_owned()
     }

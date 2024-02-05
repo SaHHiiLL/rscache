@@ -4,15 +4,17 @@ use crate::{
     message::{self, ClientMessage},
 };
 use core::fmt;
-use std::{collections::HashMap, net::SocketAddr};
-use tokio::sync::mpsc::{Receiver, Sender};
-
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    RwLock,
+};
 
 #[derive(Debug)]
 pub struct Server {
     client: HashMap<SocketAddr, Client>,
     rx: Receiver<ServerMessages>,
-    db: Database,
+    db: Arc<RwLock<Database>>,
 }
 
 impl fmt::Display for Server {
@@ -40,7 +42,7 @@ impl Server {
         Self {
             client: HashMap::new(),
             rx,
-            db: Database::new(),
+            db: Arc::new(RwLock::new(Database::new())),
         }
     }
 
@@ -66,8 +68,6 @@ impl Server {
                         Err(_) => {
                             if let ClientState::SettingValue { key } = cl.get_state().await {
                                 ClientMessage::SetValue { key, value: msg }
-                                // self.db.insert_value(key, msg);
-                                // cl.change_state_to_settingkey().await;
                             } else {
                                 cl.send_message("Could not parse the messgae".to_string())
                                     .await;
@@ -78,16 +78,18 @@ impl Server {
 
                     match msg {
                         message::ClientMessage::SetKey { key, dur } => {
-                            let _ = dur;
-                            self.db.insert_key_no_value(key.to_string());
+                            // self.db.insert_key_no_value(key.to_string());
+                            self.db.write().await.insert_key_impl(key.to_string(), dur);
                             cl.change_state_to_settingvalue(key).await;
                         }
                         message::ClientMessage::SetValue { key, value } => {
-                            self.db.insert_value(key, value);
+                            // self.db.insert_value(key, value);
+                            self.db.write().await.insert_value_impl(key, value);
                             cl.change_state_to_settingkey().await;
                         }
                         message::ClientMessage::GetValue { key } => {
-                            let v = self.db.get(&key);
+                            let db = self.db.read().await;
+                            let v = db.get(&key);
                             let v = match v {
                                 Some(v) => v.to_owned(),
                                 None => {
@@ -116,7 +118,8 @@ impl Server {
                         .await;
                 }
                 ServerMessages::RemoveClient(addr) => {
-                    if self.client.remove(&addr).is_some() {
+                    if let Some(client) = self.client.remove(&addr) {
+                        client.disconnect().await;
                         tracing::debug!(message = "removed client at ", %addr);
                     }
                 }

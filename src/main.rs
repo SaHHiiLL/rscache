@@ -1,3 +1,4 @@
+#![deny(unused_must_use)]
 #![allow(clippy::let_underscore_future)]
 use std::{str::FromStr, time::Duration};
 use tracing::Level;

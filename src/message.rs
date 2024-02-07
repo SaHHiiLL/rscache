@@ -38,7 +38,7 @@ pub enum ClientMessage {
     GetValue { key: String }, // GET KEY_NAME
 }
 
-const ONE_HOUR: u64 = 60 * 60 * 60;
+const ONE_HOUR: u64 = 60 * 60;
 
 impl FromStr for ClientMessage {
     type Err = ();

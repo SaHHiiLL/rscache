@@ -104,7 +104,7 @@ impl Client {
                             Ok(m) => m,
                             Err(err) => {
                                 tracing::error!(message = "Non-UTF8 string received", %err);
-                                return;
+                                break;
                             }
                         };
 
@@ -139,6 +139,10 @@ impl Client {
     }
 
     pub async fn send_message(&mut self, msg: String) {
+        let write_h = Arc::clone(&self.write);
+        let _ = write_h.write().await.write(msg.as_bytes()).await;
+    }
+    pub async fn send_messageln(&mut self, msg: String) {
         let write_h = Arc::clone(&self.write);
         write_h.write().await.writeln(msg).await;
     }

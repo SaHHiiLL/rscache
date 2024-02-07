@@ -14,7 +14,7 @@ use tokio::sync::{
 pub struct Server {
     client: HashMap<SocketAddr, Client>,
     rx: Receiver<ServerMessages>,
-    db: Arc<RwLock<Database>>,
+    db: Database,
 }
 
 impl fmt::Display for Server {
@@ -42,7 +42,7 @@ impl Server {
         Self {
             client: HashMap::new(),
             rx,
-            db: Arc::new(RwLock::new(Database::new())),
+            db: Database::new(),
         }
     }
 
@@ -69,7 +69,7 @@ impl Server {
                             if let ClientState::SettingValue { key } = cl.get_state().await {
                                 ClientMessage::SetValue { key, value: msg }
                             } else {
-                                cl.send_message("Could not parse the messgae".to_string())
+                                cl.send_messageln("Could not parse the messgae".to_string())
                                     .await;
                                 continue 'main;
                             }
@@ -78,22 +78,19 @@ impl Server {
 
                     match msg {
                         message::ClientMessage::SetKey { key, dur } => {
-                            // self.db.insert_key_no_value(key.to_string());
-                            self.db.write().await.insert_key_impl(key.to_string(), dur);
+                            self.db.insert_key_impl(key.to_string(), dbg!(dur));
                             cl.change_state_to_settingvalue(key).await;
                         }
                         message::ClientMessage::SetValue { key, value } => {
-                            // self.db.insert_value(key, value);
-                            self.db.write().await.insert_value_impl(key, value);
+                            self.db.insert_value_impl(key, value);
                             cl.change_state_to_settingkey().await;
                         }
                         message::ClientMessage::GetValue { key } => {
-                            let db = self.db.read().await;
-                            let v = db.get(&key);
+                            let v = self.db.get_impl(key.to_string());
                             let v = match v {
-                                Some(v) => v.to_owned(),
+                                Some(v) => v.to_owned().inner(),
                                 None => {
-                                    let v = format!("KEY={{{key}}} does not exists");
+                                    let v = format!("KEY={{{}}} does not exists", key);
                                     Some(v)
                                 }
                             };
@@ -102,7 +99,7 @@ impl Server {
                                 Some(v) => cl.send_message(v).await,
                                 None => {
                                     let v = format!("KEY={{{key}}} is empty");
-                                    cl.send_message(v).await;
+                                    cl.send_messageln(v).await;
                                 }
                             }
                         }

@@ -4,17 +4,31 @@ use crate::{
     message::{self, ClientMessage},
 };
 use core::fmt;
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, process::exit, sync::Arc};
 use tokio::sync::{
     mpsc::{Receiver, Sender},
     RwLock,
 };
+use tracing::debug_span;
 
 #[derive(Debug)]
 pub struct Server {
     client: HashMap<SocketAddr, Client>,
     rx: Receiver<ServerMessages>,
     db: Database,
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        let span = debug_span!("Dropping Server");
+        let _graurd = span.enter();
+        let futures = self.client.iter().map(|(addr, client)| async move {
+            tracing::info!(message = "Disconnecting", address = %addr);
+            client.disconnect().await;
+        });
+        let _ = futures::future::join_all(futures);
+        exit(0);
+    }
 }
 
 impl fmt::Display for Server {
@@ -90,7 +104,7 @@ impl Server {
                             let v = match v {
                                 Some(v) => v.to_owned().inner(),
                                 None => {
-                                    let v = format!("KEY={{{}}} does not exists", key);
+                                    let v = format!("KEY={{{}}} does not exists\n", key);
                                     Some(v)
                                 }
                             };
@@ -106,7 +120,7 @@ impl Server {
                     }
                 }
                 ServerMessages::NewClient(addr, client, tx) => {
-                    tracing::info!(message = "New client rec", %addr);
+                    tracing::info!(message = "New client", %addr);
                     self.client.insert(addr, client);
                     self.client
                         .get_mut(&addr.clone())

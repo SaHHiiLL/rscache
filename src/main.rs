@@ -1,7 +1,7 @@
 #![deny(unused_must_use)]
 #![allow(clippy::let_underscore_future)]
 use std::{str::FromStr, time::Duration};
-use tracing::Level;
+use tracing::{debug, info, info_span, trace_span, Level};
 mod client;
 mod database;
 mod message;
@@ -9,15 +9,16 @@ mod server;
 
 #[tokio::main]
 async fn main() {
-    let level = if std::option_env!("LOGGER").is_some() {
-        Level::INFO
+    let (level, span) = if std::option_env!("LOGGER").is_some() {
+        (Level::INFO, info_span!("Main"))
     } else {
-        Level::TRACE
+        (Level::TRACE, trace_span!("Main"))
     };
 
     tracing_subscriber::fmt().with_max_level(level).init();
 
     let addr = std::option_env!("ADDR").unwrap_or("127.0.0.1:6969");
+    let _ = span.enter();
 
     let addr = std::net::SocketAddr::from_str(addr).map_err(|err| {
         tracing::error!(message = "Address is in use alread. Set `ADDR` to a different address", %addr);
@@ -42,7 +43,7 @@ async fn main() {
                 let n = metrics.active_tasks_count();
 
                 if last != n {
-                    tracing::debug!(message = "Active Task", %n);
+                    debug!(message = "Active Task", %n);
                 }
                 last = n;
                 tokio::time::sleep(Duration::from_secs(20)).await;

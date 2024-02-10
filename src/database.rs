@@ -8,7 +8,7 @@ pub struct Database {
     data_imp: HashMap<String, Data>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Data {
     inner: Option<String>,
     // time to live in seconds
@@ -39,7 +39,7 @@ impl Data {
         dbg!(now
             .saturating_duration_since(self.time_added.into())
             .as_secs())
-            > self.ttl.as_secs()
+            < self.ttl.as_secs()
     }
 }
 
@@ -74,13 +74,13 @@ impl Database {
         }
     }
 
-    pub fn get_impl(&mut self, k: String) -> Option<&Data> {
-        self.data_imp.remove(&k);
-        let x = self.data_imp.get(&k)?;
+    pub fn get_impl(&mut self, k: String) -> Option<Data> {
+        let x = self.data_imp.get(&k)?.clone();
 
         if x.validate_cache() {
             return Some(x);
         }
+        self.data_imp.remove(&k);
         // remove
         None
     }

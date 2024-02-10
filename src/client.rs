@@ -9,6 +9,7 @@ use tokio::{
     },
     sync::{mpsc::Sender, RwLock},
 };
+use tracing::{debug_span, info_span, span, Level};
 
 use crate::server::ServerMessages;
 
@@ -50,6 +51,12 @@ pub enum ClientState {
     SettingKey,
 }
 
+impl Drop for Client {
+    fn drop(&mut self) {
+        futures::executor::block_on(self.disconnect());
+    }
+}
+
 impl ClientState {
     fn setting_key(&mut self) {
         *self = ClientState::SettingKey;
@@ -68,11 +75,13 @@ impl fmt::Display for Client {
 
 impl Client {
     pub fn new(connection: TcpStream, addr: SocketAddr) -> Self {
-        // let con = Arc::new(RwLock::new(connection));
+        let span = span!(Level::DEBUG, "Client", address = %addr);
+        let _ = span.enter();
         let (read, write) = connection.into_split();
         let read = Arc::new(RwLock::new(read));
         let write = Arc::new(RwLock::new(write));
         let state = Arc::new(RwLock::new(ClientState::SettingKey));
+        tracing::debug!("Created Client");
 
         Self {
             addr,

@@ -20,9 +20,9 @@ pub struct Server {
 
 impl Drop for Server {
     fn drop(&mut self) {
-        let span = debug_span!("Dropping Server");
-        let _graurd = span.enter();
         let futures = self.client.iter().map(|(addr, client)| async move {
+            let span = debug_span!("Dropping Server");
+            let _graurd = span.enter();
             tracing::info!(message = "Disconnecting", address = %addr);
             client.disconnect().await;
         });
@@ -61,7 +61,7 @@ impl Server {
     }
 
     pub async fn start_daemon(mut self) {
-        tracing::info!(message = "Starting Server", %self);
+        tracing::debug!(message = "Starting Server", %self);
         tokio::task::spawn(async move { self.listen_for_messages().await });
     }
 
@@ -120,7 +120,7 @@ impl Server {
                     }
                 }
                 ServerMessages::NewClient(addr, client, tx) => {
-                    tracing::info!(message = "New client", %addr);
+                    tracing::debug!(message = "New client", %addr);
                     self.client.insert(addr, client);
                     self.client
                         .get_mut(&addr.clone())

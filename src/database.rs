@@ -93,7 +93,7 @@ mod test {
     #[test]
     fn test_insert() {
         let key = "Hello".to_string();
-        let value = "world".to_string();
+        let _value = "world".to_string();
         let ttl = Duration::from_secs(10);
 
         let mut db = Database::new();
@@ -101,8 +101,8 @@ mod test {
 
         let got = db.get_impl(key);
 
-        assert_eq!(got.is_some(), true);
+        assert!(got.is_some());
 
-        assert_eq!(got.expect("Asserted Above").inner().is_none(), true);
+        assert!(got.expect("Asserted Above").inner().is_none());
     }
 }

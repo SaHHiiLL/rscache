@@ -9,7 +9,7 @@ use tokio::{
     },
     sync::{mpsc::Sender, RwLock},
 };
-use tracing::{debug_span, info_span, span, Level};
+use tracing::{span, Level};
 
 use crate::server::ServerMessages;
 

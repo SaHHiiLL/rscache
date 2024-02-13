@@ -4,10 +4,9 @@ use crate::{
     message::{self, ClientMessage},
 };
 use core::fmt;
-use std::{collections::HashMap, net::SocketAddr, process::exit, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, process::exit};
 use tokio::sync::{
     mpsc::{Receiver, Sender},
-    RwLock,
 };
 use tracing::debug_span;
 

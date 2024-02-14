@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    port: u16,
+    port: Option<u16>,
     child: Option<Node>,
     parent: Option<Node>,
 }
@@ -17,7 +17,15 @@ struct Node {
 
 impl Config {
     pub fn port(&self) -> u16 {
-        self.port
+        self.port.unwrap_or_else(|| {
+            let port = std::env::var("RSCACHE_PORT")
+                .map(|p| {
+                    p.parse()
+                        .expect("Unable to parse `RSCACHE_PORT` -> not a valid `u16`")
+                })
+                .expect("Could not find fallback port set `RSCACHE_PORT`");
+            port
+        })
     }
     pub fn child_as_addr(&self) -> SocketAddr {
         let child = self.child.clone();

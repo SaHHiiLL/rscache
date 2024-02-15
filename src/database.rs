@@ -36,9 +36,8 @@ impl Data {
 
     pub fn validate_cache(&self) -> bool {
         let now = Instant::now();
-        dbg!(now
-            .saturating_duration_since(self.time_added.into())
-            .as_secs())
+        now.saturating_duration_since(self.time_added.into())
+            .as_secs()
             < self.ttl.as_secs()
     }
 }
@@ -48,6 +47,9 @@ impl Database {
         Self {
             data_imp: HashMap::new(),
         }
+    }
+    pub fn table(&self) -> &HashMap<String, Data> {
+        &self.data_imp
     }
 
     pub fn insert_key_impl(&mut self, key: String, ttl: Duration) {
@@ -74,7 +76,8 @@ impl Database {
         }
     }
 
-    pub fn get_impl(&mut self, k: String) -> Option<Data> {
+    /// TODO: remove this
+    pub fn get_or_remove(&mut self, k: String) -> Option<Data> {
         let x = self.data_imp.get(&k)?.clone();
 
         if x.validate_cache() {
@@ -99,7 +102,7 @@ mod test {
         let mut db = Database::new();
         db.insert_key_impl(key.to_string(), ttl);
 
-        let got = db.get_impl(key);
+        let got = db.get_or_remove(key);
 
         assert!(got.is_some());
 

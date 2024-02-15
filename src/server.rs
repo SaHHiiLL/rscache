@@ -4,9 +4,10 @@ use crate::{
     message::{self, ClientMessage},
 };
 use core::fmt;
-use std::{collections::HashMap, net::SocketAddr, process::exit};
+use std::{collections::HashMap, net::SocketAddr, process::exit, sync::Arc};
 use tokio::sync::{
     mpsc::{Receiver, Sender},
+    RwLock,
 };
 use tracing::debug_span;
 
@@ -14,7 +15,7 @@ use tracing::debug_span;
 pub struct Server {
     client: HashMap<SocketAddr, Client>,
     rx: Receiver<ServerMessages>,
-    db: Database,
+    db: Arc<RwLock<Database>>,
 }
 
 impl Drop for Server {
@@ -50,18 +51,35 @@ pub enum ServerMessages {
     RemoveClient(SocketAddr),
 }
 
+// TODO: takes too much CPU resorces
+async fn keep_database_valid(db: Arc<RwLock<Database>>) -> ! {
+    loop {
+        for (key, v) in db.read().await.table() {
+            tracing::info!("checking");
+            if !v.validate_cache() {
+                tracing::info!("Need to remove this ");
+            } else {
+                tracing::warn!("Need to do nothing");
+            }
+        }
+    }
+}
+
 impl Server {
     pub async fn new(rx: Receiver<ServerMessages>) -> Self {
+        let db = Arc::new(RwLock::new(Database::new()));
         Self {
             client: HashMap::new(),
             rx,
-            db: Database::new(),
+            db,
         }
     }
 
     pub async fn start_daemon(mut self) {
         tracing::debug!(message = "Starting Server", %self);
+        let db = Arc::clone(&self.db);
         tokio::task::spawn(async move { self.listen_for_messages().await });
+        tokio::task::spawn(async move { keep_database_valid(db).await });
     }
 
     async fn listen_for_messages(&mut self) {
@@ -91,15 +109,18 @@ impl Server {
 
                     match msg {
                         message::ClientMessage::SetKey { key, dur } => {
-                            self.db.insert_key_impl(key.to_string(), dbg!(dur));
+                            self.db
+                                .write()
+                                .await
+                                .insert_key_impl(key.to_string(), dbg!(dur));
                             cl.change_state_to_settingvalue(key).await;
                         }
                         message::ClientMessage::SetValue { key, value } => {
-                            self.db.insert_value_impl(key, value);
+                            self.db.write().await.insert_value_impl(key, value);
                             cl.change_state_to_settingkey().await;
                         }
                         message::ClientMessage::GetValue { key } => {
-                            let v = self.db.get_impl(key.to_string());
+                            let v = self.db.write().await.get_or_remove(key.to_string());
                             let v = match v {
                                 Some(v) => v.to_owned().inner(),
                                 None => {

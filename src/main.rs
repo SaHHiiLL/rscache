@@ -1,6 +1,6 @@
 #![deny(unused_must_use)]
 #![allow(clippy::let_underscore_future)]
-use std::{net::SocketAddr, process::exit, str::FromStr};
+use std::{env::args, net::SocketAddr, process::exit, str::FromStr};
 use tracing::{debug, info_span, trace_span, Level};
 mod client;
 mod config;
@@ -14,20 +14,24 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    #[arg(short, default_value = "debug")]
+    log: String,
+
     #[arg(short, long)]
     join: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let (level, span) = if std::option_env!("LOGGER").is_some() {
+    let args = Args::parse();
+
+    let (level, span) = if std::option_env!("LOGGER").is_some() || args.log != *"debug".to_string()
+    {
         (Level::INFO, info_span!("Main"))
     } else {
         (Level::TRACE, trace_span!("Main"))
     };
     tracing_subscriber::fmt().with_max_level(level).init();
-
-    let args = Args::parse();
 
     let cfg =
         serde_json::from_str::<config::Config>(include_str!("../config.json")).map_err(|err| {
@@ -38,7 +42,7 @@ async fn main() -> std::io::Result<()> {
         // make a tcp connection
         let addr = args.join.unwrap();
         let addr = format!("{}:{}", addr, cfg.port());
-        let addr = dbg!(addr).parse::<SocketAddr>().unwrap();
+        let addr = addr.parse::<SocketAddr>().unwrap();
         tokio::net::TcpStream::connect(addr).await.unwrap();
     }
 
@@ -54,6 +58,7 @@ async fn main() -> std::io::Result<()> {
     let server = crate::server::Server::new(rx).await;
     server.start_daemon().await;
 
+    debug!("Server Started bing address");
     let connection = tokio::net::TcpListener::bind(addr).await?;
     tracing::debug!(message = "Listening on", %addr);
 

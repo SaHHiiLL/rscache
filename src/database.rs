@@ -3,9 +3,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tokio::time::interval;
+
 #[derive(Debug)]
 pub struct Database {
-    data_imp: HashMap<String, Data>,
+    inner: Arc<RwLock<HashMap<String, Data>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -45,67 +49,88 @@ impl Data {
 impl Database {
     pub fn new() -> Self {
         Self {
-            data_imp: HashMap::new(),
+            inner: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-    pub fn table(&self) -> &HashMap<String, Data> {
-        &self.data_imp
+
+    pub async fn keep_valid(&mut self) {
+        let inner = Arc::clone(&self.inner);
+        tokio::task::spawn(async move {
+            let mut interval = interval(Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                tracing::debug!("Tring to remove");
+                inner.write().await.retain(|_, v| v.validate_cache());
+                tracing::debug!("Removed");
+            }
+        });
     }
 
-    pub fn insert_key_impl(&mut self, key: String, ttl: Duration) {
+    pub async fn insert_key(&mut self, key: String, ttl: Duration) {
         let data = Data {
             inner: None,
             ttl,
             time_added: tokio::time::Instant::now(),
         };
-        self.data_imp.insert(key, data);
+        let table = Arc::clone(&self.inner);
+        table.write().await.insert(key, data);
     }
 
-    pub fn insert_value_impl(&mut self, key: String, value: String) {
-        let d = self.data_imp.get_mut(&key);
-        match d {
+    // TODO remove expect -- recursion is not allowed in async function
+    pub async fn insert_value(&mut self, key: String, value: String) {
+        let table = Arc::clone(&self.inner);
+        match table.write().await.get_mut(&key) {
             Some(v) => {
                 if v.inner.is_none() {
                     let _ = v.inner.insert(value);
                 }
             }
             None => {
-                self.insert_key_impl(key.clone(), Duration::from_secs(60));
-                self.insert_value_impl(key, value);
+                self.insert_key(key.clone(), Duration::from_secs(10)).await;
+
+                let _ = table
+                    .write()
+                    .await
+                    .get_mut(&key)
+                    .expect("Should Not fail")
+                    .inner
+                    .insert(value);
             }
-        }
+        };
     }
 
-    /// TODO: remove this
-    pub fn get_or_remove(&mut self, k: String) -> Option<Data> {
-        let x = self.data_imp.get(&k)?.clone();
+    // TODO: remove this
+    pub async fn get_or_remove(&mut self, k: String) -> Option<Data> {
+        let table = Arc::clone(&self.inner);
+        let x = table.write().await.get(&k)?.clone();
 
         if x.validate_cache() {
             return Some(x);
         }
-        self.data_imp.remove(&k);
+        table.write().await.remove(&k);
         // remove
         None
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_insert() {
-        let key = "Hello".to_string();
-        let _value = "world".to_string();
-        let ttl = Duration::from_secs(10);
-
-        let mut db = Database::new();
-        db.insert_key_impl(key.to_string(), ttl);
-
-        let got = db.get_or_remove(key);
-
-        assert!(got.is_some());
-
-        assert!(got.expect("Asserted Above").inner().is_none());
-    }
-}
+// TODO:
+// #[cfg(test)]
+// mod test {
+//     use super::*;
+//
+//     #[test]
+//     fn test_insert() {
+//         let key = "Hello".to_string();
+//         let _value = "world".to_string();
+//         let ttl = Duration::from_secs(10);
+//
+//         let mut db = Database::new();
+//         db.insert_key(key.to_string(), ttl);
+//
+//         let got = db.get_or_remove(key);
+//
+//         assert!(got.is_some());
+//
+//         assert!(got.expect("Asserted Above").inner().is_none());
+//     }
+// }

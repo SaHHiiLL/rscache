@@ -4,22 +4,20 @@ use crate::{
     message::{self, ClientMessage},
 };
 use core::fmt;
-use std::{collections::HashMap, net::SocketAddr, process::exit, sync::Arc};
-use tokio::sync::{
-    mpsc::{Receiver, Sender},
-    RwLock,
-};
+use std::{collections::HashMap, net::SocketAddr, process::exit};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::debug_span;
 
 #[derive(Debug)]
 pub struct Server {
     client: HashMap<SocketAddr, Client>,
     rx: Receiver<ServerMessages>,
-    db: Arc<RwLock<Database>>,
+    db: Database,
 }
 
 impl Drop for Server {
     fn drop(&mut self) {
+        tracing::debug!("Dropping Server");
         let futures = self.client.iter().map(|(addr, client)| async move {
             let span = debug_span!("Dropping Server");
             let _graurd = span.enter();
@@ -51,23 +49,9 @@ pub enum ServerMessages {
     RemoveClient(SocketAddr),
 }
 
-// TODO: takes too much CPU resorces
-async fn keep_database_valid(db: Arc<RwLock<Database>>) -> ! {
-    loop {
-        for (key, v) in db.read().await.table() {
-            tracing::info!("checking");
-            if !v.validate_cache() {
-                tracing::info!("Need to remove this ");
-            } else {
-                tracing::warn!("Need to do nothing");
-            }
-        }
-    }
-}
-
 impl Server {
     pub async fn new(rx: Receiver<ServerMessages>) -> Self {
-        let db = Arc::new(RwLock::new(Database::new()));
+        let db = Database::new();
         Self {
             client: HashMap::new(),
             rx,
@@ -77,9 +61,9 @@ impl Server {
 
     pub async fn start_daemon(mut self) {
         tracing::debug!(message = "Starting Server", %self);
-        let db = Arc::clone(&self.db);
+        self.db.keep_valid().await;
         tokio::task::spawn(async move { self.listen_for_messages().await });
-        tokio::task::spawn(async move { keep_database_valid(db).await });
+        // tokio::task::spawn(async move { keep_database_valid(db).await });
     }
 
     async fn listen_for_messages(&mut self) {
@@ -109,18 +93,15 @@ impl Server {
 
                     match msg {
                         message::ClientMessage::SetKey { key, dur } => {
-                            self.db
-                                .write()
-                                .await
-                                .insert_key_impl(key.to_string(), dbg!(dur));
+                            self.db.insert_key(key.to_string(), dur).await;
                             cl.change_state_to_settingvalue(key).await;
                         }
                         message::ClientMessage::SetValue { key, value } => {
-                            self.db.write().await.insert_value_impl(key, value);
+                            self.db.insert_value(key, value).await;
                             cl.change_state_to_settingkey().await;
                         }
                         message::ClientMessage::GetValue { key } => {
-                            let v = self.db.write().await.get_or_remove(key.to_string());
+                            let v = self.db.get_or_remove(key.to_string()).await;
                             let v = match v {
                                 Some(v) => v.to_owned().inner(),
                                 None => {

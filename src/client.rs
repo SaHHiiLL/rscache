@@ -127,7 +127,6 @@ impl Client {
                     Err(_) => break,
                 }
             }
-            tracing::debug!(message = "Dropping Connection", %addr);
             let _ = tx
                 .send(ServerMessages::RemoveClient(addr))
                 .await

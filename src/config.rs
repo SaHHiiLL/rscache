@@ -18,13 +18,13 @@ struct Node {
 impl Config {
     pub fn port(&self) -> u16 {
         self.port.unwrap_or_else(|| {
-            let port = std::env::var("RSCACHE_PORT")
+            
+            std::env::var("RSCACHE_PORT")
                 .map(|p| {
                     p.parse()
                         .expect("Unable to parse `RSCACHE_PORT` -> not a valid `u16`")
                 })
-                .expect("Could not find fallback port set `RSCACHE_PORT`");
-            port
+                .expect("Could not find fallback port set `RSCACHE_PORT`")
         })
     }
     pub fn child_as_addr(&self) -> SocketAddr {

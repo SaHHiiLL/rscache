@@ -1,6 +1,6 @@
 #![deny(unused_must_use)]
 #![allow(clippy::let_underscore_future)]
-use std::{env::args, net::SocketAddr, process::exit, str::FromStr};
+use std::{net::SocketAddr, process::exit, str::FromStr};
 use tracing::{debug, info_span, trace_span, Level};
 mod client;
 mod config;

@@ -97,7 +97,8 @@ impl Server {
                             cl.change_state_to_settingvalue(key).await;
                         }
                         message::ClientMessage::SetValue { key, value } => {
-                            self.db.insert_value(key, value).await;
+                            self.db.insert_key_value(key, value).await;
+                            tracing::debug!("Set Value");
                             cl.change_state_to_settingkey().await;
                         }
                         message::ClientMessage::GetValue { key } => {

@@ -43,8 +43,8 @@ const ONE_HOUR: u64 = 10;
 impl FromStr for ClientMessage {
     type Err = ();
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut s = s.split_whitespace();
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        let mut s = input.split_whitespace();
 
         match s.next().ok_or(())? {
             "GET" => Ok(ClientMessage::GetValue {
@@ -70,7 +70,15 @@ impl FromStr for ClientMessage {
 
                 Ok(ClientMessage::SetKey { key, dur })
             }
-            _ => Err(()),
+            _ => {
+                // parse "Hello:jhsjdh"
+                // where "Hello" is the key and "jhsjdh" is the value
+                let (key, value) = input
+                    .split_once(':')
+                    .ok_or(())
+                    .map(|(f, u)| (f.to_string(), u.to_string()))?;
+                Ok(ClientMessage::SetValue { key, value })
+            }
         }
     }
 }

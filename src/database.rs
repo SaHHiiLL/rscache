@@ -1,3 +1,4 @@
+use std::hash::{BuildHasher, Hash};
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
@@ -59,9 +60,7 @@ impl Database {
             let mut interval = interval(Duration::from_secs(5));
             loop {
                 interval.tick().await;
-                tracing::debug!("Tring to remove");
                 inner.write().await.retain(|_, v| v.validate_cache());
-                tracing::debug!("Removed");
             }
         });
     }
@@ -76,29 +75,28 @@ impl Database {
         table.write().await.insert(key, data);
     }
 
-    // TODO remove expect -- recursion is not allowed in async function
-    pub async fn insert_value(&mut self, key: String, value: String) {
+    pub async fn insert_key_value(&mut self, key: String, value: String) {
         let table = Arc::clone(&self.inner);
-        match table.write().await.get_mut(&key) {
-            Some(v) => {
+        let mut table = table.write().await;
+
+        match table.get_mut(&key) {
+            Some(ref mut v) => {
                 if v.inner.is_none() {
                     let _ = v.inner.insert(value);
                 }
             }
             None => {
-                self.insert_key(key.clone(), Duration::from_secs(10)).await;
-
-                let _ = table
-                    .write()
-                    .await
-                    .get_mut(&key)
-                    .expect("Should Not fail")
-                    .inner
-                    .insert(value);
+                let data = Data {
+                    inner: Some(value),
+                    ttl: Duration::from_secs(10),
+                    time_added: tokio::time::Instant::now(),
+                };
+                table.insert(key, data);
             }
-        };
-    }
+        }
 
+        dbg!(self);
+    }
     // TODO: remove this
     pub async fn get_or_remove(&mut self, k: String) -> Option<Data> {
         let table = Arc::clone(&self.inner);

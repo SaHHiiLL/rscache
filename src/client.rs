@@ -75,8 +75,6 @@ impl fmt::Display for Client {
 
 impl Client {
     pub fn new(connection: TcpStream, addr: SocketAddr) -> Self {
-        let span = span!(Level::DEBUG, "Client", address = %addr);
-        let _ = span.enter();
         let (read, write) = connection.into_split();
         let read = Arc::new(RwLock::new(read));
         let write = Arc::new(RwLock::new(write));

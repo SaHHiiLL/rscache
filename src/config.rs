@@ -1,4 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::time::Duration;
 
 use serde::Deserialize;
 
@@ -7,6 +8,7 @@ pub struct Config {
     port: Option<u16>,
     child: Option<Node>,
     parent: Option<Node>,
+    cleanup_time: u16,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -18,7 +20,6 @@ struct Node {
 impl Config {
     pub fn port(&self) -> u16 {
         self.port.unwrap_or_else(|| {
-            
             std::env::var("RSCACHE_PORT")
                 .map(|p| {
                     p.parse()
@@ -42,5 +43,9 @@ impl Config {
             IpAddr::V4(Ipv4Addr::new(addr[0], addr[1], addr[2], addr[3])),
             parent.unwrap_or_default().port,
         )
+    }
+
+    pub fn cleanup_time_as_duration(&self) -> Duration {
+        Duration::from_secs(self.cleanup_time.into())
     }
 }

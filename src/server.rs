@@ -1,11 +1,15 @@
 use crate::{
     client::{Client, ClientState},
+    config::Config,
     database::Database,
     message::{self, ClientMessage},
 };
 use core::fmt;
-use std::{collections::HashMap, net::SocketAddr, process::exit};
-use tokio::sync::mpsc::{Receiver, Sender};
+use std::{collections::HashMap, net::SocketAddr, process::exit, sync::Arc};
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    RwLock,
+};
 use tracing::debug_span;
 
 #[derive(Debug)]
@@ -13,6 +17,7 @@ pub struct Server {
     client: HashMap<SocketAddr, Client>,
     rx: Receiver<ServerMessages>,
     db: Database,
+    config: Arc<Config>,
 }
 
 impl Drop for Server {
@@ -50,12 +55,13 @@ pub enum ServerMessages {
 }
 
 impl Server {
-    pub async fn new(rx: Receiver<ServerMessages>) -> Self {
-        let db = Database::new();
+    pub async fn new(rx: Receiver<ServerMessages>, config: Arc<Config>) -> Self {
+        let db = Database::new(Arc::clone(&config));
         Self {
             client: HashMap::new(),
             rx,
             db,
+            config,
         }
     }
 

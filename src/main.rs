@@ -1,6 +1,8 @@
 #![deny(unused_must_use)]
 #![allow(clippy::let_underscore_future)]
-use std::{net::SocketAddr, process::exit, str::FromStr};
+use std::{net::SocketAddr, process::exit, str::FromStr, sync::Arc};
+
+use tokio::sync::RwLock;
 use tracing::{debug, info_span, trace_span, Level};
 mod client;
 mod config;
@@ -38,6 +40,7 @@ async fn main() -> std::io::Result<()> {
             tracing::error!("Could not parse config file");
             err
         })?;
+
     if args.join.is_some() {
         // make a tcp connection
         let addr = args.join.unwrap();
@@ -53,12 +56,11 @@ async fn main() -> std::io::Result<()> {
         tracing::error!(message = "Address is in use alread. Set `ADDR` to a different address", %addr, err = %err);
         exit(1);
     }).unwrap();
-
+    let cfg = Arc::new(cfg);
     let (tx, rx) = tokio::sync::mpsc::channel(10);
-    let server = crate::server::Server::new(rx).await;
+    let server = crate::server::Server::new(rx, Arc::clone(&cfg)).await;
     server.start_daemon().await;
 
-    debug!("Server Started bing address");
     let connection = tokio::net::TcpListener::bind(addr).await?;
     tracing::debug!(message = "Listening on", %addr);
 

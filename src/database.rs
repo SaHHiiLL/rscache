@@ -1,6 +1,6 @@
-use std::hash::{BuildHasher, Hash};
 use std::{
     collections::HashMap,
+    str::pattern::DoubleEndedSearcher,
     time::{Duration, Instant},
 };
 
@@ -8,9 +8,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::interval;
 
+use crate::config::Config;
+
 #[derive(Debug)]
 pub struct Database {
     inner: Arc<RwLock<HashMap<String, Data>>>,
+    config: Arc<Config>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,16 +51,18 @@ impl Data {
 }
 
 impl Database {
-    pub fn new() -> Self {
+    pub fn new(config: Arc<Config>) -> Self {
         Self {
             inner: Arc::new(RwLock::new(HashMap::new())),
+            config,
         }
     }
 
     pub async fn keep_valid(&mut self) {
         let inner = Arc::clone(&self.inner);
+        let dur = self.config.as_ref().cleanup_time_as_duration();
         tokio::task::spawn(async move {
-            let mut interval = interval(Duration::from_secs(5));
+            let mut interval = interval(dur);
             loop {
                 interval.tick().await;
                 inner.write().await.retain(|_, v| v.validate_cache());
@@ -97,7 +102,6 @@ impl Database {
 
         dbg!(self);
     }
-    // TODO: remove this
     pub async fn get_or_remove(&mut self, k: String) -> Option<Data> {
         let table = Arc::clone(&self.inner);
         let x = table.write().await.get(&k)?.clone();
@@ -110,25 +114,3 @@ impl Database {
         None
     }
 }
-
-// TODO:
-// #[cfg(test)]
-// mod test {
-//     use super::*;
-//
-//     #[test]
-//     fn test_insert() {
-//         let key = "Hello".to_string();
-//         let _value = "world".to_string();
-//         let ttl = Duration::from_secs(10);
-//
-//         let mut db = Database::new();
-//         db.insert_key(key.to_string(), ttl);
-//
-//         let got = db.get_or_remove(key);
-//
-//         assert!(got.is_some());
-//
-//         assert!(got.expect("Asserted Above").inner().is_none());
-//     }
-// }

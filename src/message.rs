@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Duration};
+use std::{net::SocketAddr, str::FromStr, time::Duration};
 
 #[derive(Debug)]
 pub enum JoinMessage {
@@ -36,9 +36,11 @@ pub enum ClientMessage {
     SetKey { key: String, dur: Duration }, // SET KEY_NAME DURATION
     SetValue { key: String, value: String },
     GetValue { key: String }, // GET KEY_NAME
+    JoinNode { addr: SocketAddr },
+    Defered { addr: SocketAddr },
 }
 
-const ONE_HOUR: u64 = 10;
+const ONE_HOUR: u64 = 1 << 4;
 
 impl FromStr for ClientMessage {
     type Err = ();
@@ -69,6 +71,16 @@ impl FromStr for ClientMessage {
                 };
 
                 Ok(ClientMessage::SetKey { key, dur })
+            }
+            "DEFERED" => {
+                let addr = s.next().ok_or(())?;
+                let addr = addr.parse::<SocketAddr>().map_err(|_| ())?;
+                Ok(ClientMessage::Defered { addr })
+            }
+            "JOIN" => {
+                let addr = s.next().ok_or(())?;
+                let addr = addr.parse::<SocketAddr>().map_err(|_| ())?;
+                Ok(ClientMessage::JoinNode { addr })
             }
             _ => {
                 // parse "Hello:jhsjdh"

@@ -6,18 +6,40 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct Config {
     port: Option<u16>,
-    child: Option<Node>,
     parent: Option<Node>,
-    cleanup_time: u16,
+    cleanup_time: Option<u16>,
+    max_nodes: Option<u16>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
-struct Node {
+pub struct Node {
     addr: [u8; 4],
     port: u16,
 }
 
+impl Node {
+    pub fn into(self) -> SocketAddr {
+        SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(
+                self.addr[0],
+                self.addr[1],
+                self.addr[2],
+                self.addr[3],
+            )),
+            self.port,
+        )
+    }
+
+    pub fn addr(&self) -> [u8; 4] {
+        self.addr
+    }
+}
+
 impl Config {
+    pub fn max_nodes(&self) -> u16 {
+        self.max_nodes.unwrap_or(3)
+    }
+
     pub fn port(&self) -> u16 {
         self.port.unwrap_or_else(|| {
             std::env::var("RSCACHE_PORT")
@@ -28,24 +50,13 @@ impl Config {
                 .expect("Could not find fallback port set `RSCACHE_PORT`")
         })
     }
-    pub fn child_as_addr(&self) -> SocketAddr {
-        let child = self.child.clone();
-        let addr = child.clone().unwrap_or_default().addr;
-        SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(addr[0], addr[1], addr[2], addr[3])),
-            child.unwrap_or_default().port,
-        )
-    }
-    pub fn parent_as_addr(&self) -> SocketAddr {
-        let parent = self.parent.clone();
-        let addr = parent.clone().unwrap_or_default().addr;
-        SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(addr[0], addr[1], addr[2], addr[3])),
-            parent.unwrap_or_default().port,
-        )
+
+    pub fn parent(&self) -> Option<Node> {
+        self.parent.clone()
     }
 
     pub fn cleanup_time_as_duration(&self) -> Duration {
-        Duration::from_secs(self.cleanup_time.into())
+        let ct = self.cleanup_time.unwrap_or(60);
+        Duration::from_secs(ct.into())
     }
 }

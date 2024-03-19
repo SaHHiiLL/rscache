@@ -153,6 +153,11 @@ impl Client {
         write_h.write().await.writeln(msg).await;
     }
 
+    pub async fn send_messageb(&mut self, msg: &[u8]) {
+        let write_h = Arc::clone(&self.write);
+        let _ = write_h.write().await.write(msg).await;
+    }
+
     pub async fn change_state_to_settingkey(&mut self) {
         Arc::clone(&self.state).write().await.setting_key();
     }

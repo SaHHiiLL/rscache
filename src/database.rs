@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    str::pattern::DoubleEndedSearcher,
     time::{Duration, Instant},
 };
 
@@ -99,8 +98,6 @@ impl Database {
                 table.insert(key, data);
             }
         }
-
-        dbg!(self);
     }
     pub async fn get_or_remove(&mut self, k: String) -> Option<Data> {
         let table = Arc::clone(&self.inner);

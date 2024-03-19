@@ -18,6 +18,8 @@ pub struct Server {
     rx: Receiver<ServerMessages>,
     db: Database,
     config: Arc<Config>,
+    nodes: Vec<Client>,
+    parent: Option<Client>,
 }
 
 impl Drop for Server {
@@ -55,13 +57,19 @@ pub enum ServerMessages {
 }
 
 impl Server {
-    pub async fn new(rx: Receiver<ServerMessages>, config: Arc<Config>) -> Self {
+    pub async fn new(
+        rx: Receiver<ServerMessages>,
+        config: Arc<Config>,
+        parent: Option<Client>,
+    ) -> Self {
         let db = Database::new(Arc::clone(&config));
         Self {
             client: HashMap::new(),
             rx,
             db,
             config,
+            nodes: Vec::new(),
+            parent,
         }
     }
 
@@ -69,7 +77,6 @@ impl Server {
         tracing::debug!(message = "Starting Server", %self);
         self.db.keep_valid().await;
         tokio::task::spawn(async move { self.listen_for_messages().await });
-        // tokio::task::spawn(async move { keep_database_valid(db).await });
     }
 
     async fn listen_for_messages(&mut self) {
@@ -125,16 +132,42 @@ impl Server {
                                 }
                             }
                         }
+                        message::ClientMessage::JoinNode { addr } => {
+                            match self.client.remove(&addr) {
+                                Some(client) => {
+                                    let res = self.add_node(client).await;
+                                    match res {
+                                        Ok(client) => {
+                                            client.send_messageb(b"OK").await;
+                                        }
+                                        Err(op_client) => {
+                                            if let Some(client) = op_client {
+                                                self.client.insert(addr, client);
+                                            } else {
+                                                unreachable!("This should not happen: There should always be a last client");
+                                            }
+                                        }
+                                    }
+                                }
+                                None => {
+                                    tracing::error!(message = "Client not found", %addr);
+                                    tracing::error!(message = "Clinet was able to send a message over TCP and pretened as a Client", %addr);
+                                    tracing::debug!(message = "FAILED TO JOIN AS NODE", %addr);
+                                }
+                            }
+                        }
+                        message::ClientMessage::Defered { addr } => {
+                            // TODO: Defer the connection to the next node in the list
+                            tracing::debug!(message = "Defered", %addr);
+                        }
                     }
                 }
                 ServerMessages::NewClient(addr, client, tx) => {
                     tracing::debug!(message = "New client", %addr);
-                    self.client.insert(addr, client);
-                    self.client
-                        .get_mut(&addr.clone())
-                        .expect("unreachable")
-                        .keep_open(tx)
-                        .await;
+                    let mut client = self.client.insert(addr, client);
+                    if let Some(ref mut client) = client {
+                        client.keep_open(tx).await;
+                    }
                 }
                 ServerMessages::RemoveClient(addr) => {
                     if let Some(client) = self.client.remove(&addr) {
@@ -145,4 +178,18 @@ impl Server {
             }
         }
     }
+
+    /// Adds a new node to the topolgy if and only if the max_nodes is not reached. If the max_nodes
+    /// is reached, the trys to find the next node in line that can accept the connection.
+    pub async fn add_node(&mut self, client: Client) -> Result<&mut Client, Option<Client>> {}
+
+    async fn ask_deferred_node(&mut self, client: Client) -> Option<Client> {}
+
+    /// Since the topology is a tree, we can drop the connection to the next node in line - starts
+    /// from index 0 and goes up to the max_nodes. the client will always be part of the connection
+    /// list as it's not possible to have a maxed out connection list.
+    ///
+    /// This function works like a pyramid scheme, where the last node in the list is the one that
+    /// gets the connection.
+    pub async fn drop_connection_to_nodes(&mut self, client: Client) {}
 }

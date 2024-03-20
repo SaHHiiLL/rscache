@@ -1,16 +1,59 @@
 #![deny(unused_must_use)]
 #![allow(clippy::let_underscore_future)]
-use std::{net::SocketAddr, process::exit, str::FromStr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, process::exit, str::FromStr, sync::Arc};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, info_span, trace_span, Level};
 
 use crate::client::Client;
+
 mod client;
 mod config;
 mod database;
 mod message;
 mod server;
+
+pub async fn connect_to_parent(
+    cfg: &crate::config::Config,
+) -> Result<tokio::net::TcpStream, Box<dyn std::error::Error>> {
+    let parent = cfg.parent().ok_or("No parent set")?;
+
+    let mut connection =
+        tokio::net::TcpStream::connect::<SocketAddr>(parent.to_socketaddr()).await?;
+
+    // By making the connection, we are currently registered as a normal "client" to the parent and
+    // not as Node. The parent is expecting a "JOIN" message from us to register us as a node.
+    connection.write_all(b"JOIN").await?;
+    // Now we must wait for the parent to respond
+    let mut buf = [0; 1024];
+
+    let timeout = tokio::time::Duration::from_secs(10);
+    if let Ok(n) = tokio::time::timeout(timeout, connection.read(&mut buf)).await? {
+        let response = std::str::from_utf8(&buf[..n])?;
+        match response {
+            "OK" => {
+                tracing::info!(message = "Connected to parent", %parent);
+            }
+            "DEFERED" => {
+                // TODO:
+                let addr = connection.peer_addr().unwrap();
+                let addr = format!("DEFERED {}", addr);
+                tracing::debug!(message = "Parent deferred", %addr);
+                return Err("Parent deferred".into());
+            }
+            _ => {
+                tracing::error!(message = "Parent did not respond with OK", %response);
+                return Err("Parent did not respond with OK".into());
+            }
+        }
+    } else {
+        tracing::error!(message = "Timeout while waiting for response from parent");
+        tracing::warn!(message = "Server Starting without parent");
+        return Err("Timeout while waiting for response from parent".into());
+    }
+
+    Ok(connection)
+}
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -27,65 +70,22 @@ async fn main() -> std::io::Result<()> {
             err
         })?;
 
+    let parent_connection = connect_to_parent(&cfg).await.map_err(|err| {
+        tracing::error!(message = "Could not connect to network", %err);
+        tracing::warn!(message = "Server Starting without parent");
+    });
+
     let mut parent = None;
-    //
-    // If the parent is set, then we need to connect to the parent and send a message to the parent
-    // to join the network. The parent will then respond with an "OK" message. If the parent does
-    // not respond with an "OK" message, then we should exit the program.
-    // TIMEOUT is set to 10 seconds.
-    //
-    // NOTE:
-    // If the parent responds with "DEFERED <addr>:<port>", then connect the defered parent and
-    // abandon the current parent.
-    if cfg.parent().is_some() {
-        let parent_c = cfg.parent().unwrap().into();
-        // make a TCP connection with the parent and wait till the respose is "OK";
-        let mut stream = tokio::net::TcpStream::connect(parent_c)
-            .await
-            .map_err(|err| {
-                tracing::error!(message = "Could not connect to parent", %err);
-                err
-            })?;
-        let addrs = stream.local_addr().map_err(|err| {
-            tracing::error!(message = "Could not get local address", %err);
-            err
-        })?;
-        let msg = format!("JOIN {}", addrs);
-        stream.write_all(msg.as_bytes()).await?;
-
-        let mut buf = [0; 1024];
-        if let Ok(n) = tokio::time::timeout(Duration::from_secs(10), stream.read(&mut buf)).await {
-            let n = n.map_err(|err| {
-                tracing::error!(message = "Could not read from parent", %err);
-                err
-            })?;
-            let response = std::str::from_utf8(&buf[..n])
-                .map_err(|err| {
-                    tracing::error!(message = "Could not parse response", %err);
-                    err
-                })
-                .unwrap();
-
-            match response {
-                "OK" => {
-                    let addr = stream.peer_addr().unwrap();
-                    parent = Some(Client::new(stream, addr));
-                }
-                "DEFERED" => {
-                    let addr = stream.peer_addr().unwrap();
-                    let addr = format!("DEFERED {}", addr);
-                    tracing::debug!(message = "Parent deferred", %addr);
-                    exit(1);
-                }
-                _ => {
-                    tracing::error!(message = "Parent did not respond with OK", %response);
-                    exit(1);
-                }
+    if let Ok(parent_connection) = parent_connection {
+        tracing::info!(message = "Connected to parent");
+        parent = match parent_connection.peer_addr() {
+            Ok(addr) => Some(Client::new(parent_connection, addr)),
+            Err(err) => {
+                tracing::error!(message = "Could not get parent address", %err);
+                tracing::warn!(message = "Server Starting without parent");
+                None
             }
-        } else {
-            tracing::error!(message = "Timeout while waiting for response from parent");
-            tracing::warn!(message = "Server Starting without parent");
-        }
+        };
     }
 
     let addr = format!("127.0.0.1:{}", cfg.port());
@@ -97,12 +97,21 @@ async fn main() -> std::io::Result<()> {
         exit(1);
     }).expect("Should never reach, because of the exit");
 
+    // let addr = match std::net::SocketAddr::from_str(&addr) {
+    //     Ok(addr) => addr,
+    //     Err(err) => {}
+    // };
+
     let cfg = Arc::new(cfg);
     let (tx, rx) = tokio::sync::mpsc::channel(10);
     let server = crate::server::Server::new(rx, Arc::clone(&cfg), parent).await;
     server.start_daemon().await;
 
     let connection = tokio::net::TcpListener::bind(addr).await?;
+    let addr = connection.local_addr().map_err(|err| {
+        tracing::error!(message = "Could not get local address", %err);
+        err
+    })?;
     tracing::debug!(message = "Listening on", %addr);
 
     #[cfg(debug_assertions)]

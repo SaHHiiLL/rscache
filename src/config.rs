@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
@@ -17,8 +18,24 @@ pub struct Node {
     port: u16,
 }
 
+impl Display for Node {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}:{}",
+            self.addr
+                .to_vec()
+                .iter()
+                .map(|z| z.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+            self.port
+        )
+    }
+}
+
 impl Node {
-    pub fn into(self) -> SocketAddr {
+    pub fn to_socketaddr(&self) -> SocketAddr {
         SocketAddr::new(
             IpAddr::V4(Ipv4Addr::new(
                 self.addr[0],
@@ -40,14 +57,14 @@ impl Config {
         self.max_nodes.unwrap_or(3)
     }
 
+    /// Looks for `RSCACHE_PORT` in the environment if the port is not set in the config
+    /// returns 0 if no port is set
     pub fn port(&self) -> u16 {
         self.port.unwrap_or_else(|| {
             std::env::var("RSCACHE_PORT")
-                .map(|p| {
-                    p.parse()
-                        .expect("Unable to parse `RSCACHE_PORT` -> not a valid `u16`")
-                })
-                .expect("Could not find fallback port set `RSCACHE_PORT`")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(0) // should just indicate to the OS to pick a port
         })
     }
 

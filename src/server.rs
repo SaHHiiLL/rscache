@@ -5,7 +5,7 @@ use crate::{
     message::{self, ClientMessage},
 };
 use core::fmt;
-use std::{collections::HashMap, net::SocketAddr, process::exit, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, process::exit, rc::Rc, sync::Arc};
 use tokio::sync::{
     mpsc::{Receiver, Sender},
     RwLock,
@@ -181,9 +181,13 @@ impl Server {
 
     /// Adds a new node to the topolgy if and only if the max_nodes is not reached. If the max_nodes
     /// is reached, the trys to find the next node in line that can accept the connection.
-    pub async fn add_node(&mut self, client: Client) -> Result<&mut Client, Option<Client>> {}
+    pub async fn add_node(&mut self, client: Client) -> Result<&mut Client, Option<Client>> {
+        todo!()
+    }
 
-    async fn ask_deferred_node(&mut self, client: Client) -> Option<Client> {}
+    async fn ask_deferred_node(&mut self, client: Client) -> Option<Client> {
+        todo!()
+    }
 
     /// Since the topology is a tree, we can drop the connection to the next node in line - starts
     /// from index 0 and goes up to the max_nodes. the client will always be part of the connection

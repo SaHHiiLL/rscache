@@ -56,6 +56,17 @@ pub enum ServerMessages {
     RemoveClient(SocketAddr),
 }
 
+#[derive(Debug)]
+struct Error {
+    message: String,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
 impl Server {
     pub async fn new(
         rx: Receiver<ServerMessages>,
@@ -79,6 +90,7 @@ impl Server {
         tokio::task::spawn(async move { self.listen_for_messages().await });
     }
 
+    // TODO: deperecated
     async fn listen_for_messages(&mut self) {
         'main: while let Some(r) = self.rx.recv().await {
             match r {
